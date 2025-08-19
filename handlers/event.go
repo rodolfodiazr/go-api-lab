@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -21,13 +22,10 @@ func (e EventHandler) List(c *gin.Context) {
 		return
 	}
 
-	service := services.NewEventService(
-		repositories.NewEventRepository(db.(*sql.DB)),
-	)
-
+	service := services.NewEventService(repositories.NewEventRepository(db.(*sql.DB)))
 	events, err := service.List()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -35,19 +33,27 @@ func (e EventHandler) List(c *gin.Context) {
 }
 
 func (e EventHandler) Get(c *gin.Context) {
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	db, exists := c.Get("db")
 	if !exists {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database not found"})
 		return
 	}
 
-	service := services.NewEventService(
-		repositories.NewEventRepository(db.(*sql.DB)),
-	)
-
-	event, err := service.Find(uuid.MustParse(c.Param("id")))
+	service := services.NewEventService(repositories.NewEventRepository(db.(*sql.DB)))
+	event, err := service.Find(eventID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -67,9 +73,7 @@ func (e EventHandler) Create(c *gin.Context) {
 		return
 	}
 
-	service := services.NewEventService(
-		repositories.NewEventRepository(db.(*sql.DB)),
-	)
+	service := services.NewEventService(repositories.NewEventRepository(db.(*sql.DB)))
 	if err := service.Create(&event); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
